@@ -1,0 +1,80 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  main:
+    web-application-type: reactive
+  config:
+    import: optional:configserver:http://localhost:8888
+
+  application:
+    name: microservice-gateway
+
+  cloud:
+    gateway:
+      routes:
+        # Microservicio Payments
+        - id: payments
+          uri: http://localhost:8082
+          predicates:
+            - Path=/apirest-payments/invoices/**
+          filters:
+            - StripPrefix=1
+            - name: AuthenticationFilter
+
+
+        - id: user-microservice
+          uri: http://localhost:8084
+          predicates:
+            - Path=/auth/**
+          filters:
+            - StripPrefix=0
+
+        #Cambien para sus microservicios
+        # Microservicio Users
+        - id: users
+          uri: http://localhost:8083
+          predicates:
+            - Path=/apirest-users/**
+          filters:
+            - StripPrefix=1
+
+        # Microservicio Reservations
+        - id: reservations
+          uri: http://localhost:8085
+          predicates:
+            - Path=/apirest-reservations/**
+          filters:
+            - StripPrefix=1
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+    register-with-eureka: true
+    fetch-registry: true
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.web: DEBUG
+
+app:
+  jwt:
+    secret: m1Cl4v3S3cr3t4MuyLarg4yC0mplej4ParaJWT1234567890x
+    expiration:
+      duration: 3600000
+
+management:
+  endpoint:
+    health:
+      show-details: always
+  health:
+    readinessstate:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info
