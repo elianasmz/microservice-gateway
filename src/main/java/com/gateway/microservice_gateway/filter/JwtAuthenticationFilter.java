@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
@@ -24,16 +25,23 @@ public class JwtAuthenticationFilter implements WebFilter {
 
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
-    private static final String[] PUBLIC_PATHS = {
-            "/auth",
-            "/eureka",
-            "/actuator"
-    };
+    /**
+     * Rutas públicas: cualquier subruta bajo estos paths será accesible sin token
+     */
+    private static final List<String> PUBLIC_PATHS = List.of(
+            "/auth/",
+            "/eureka/",
+            "/actuator/",
+            "/reservations/"
+    );
 
-    private static final Map<String, List<String>> protectedRoutes = Map.of(
-            "/apirest-users", List.of("ROLE_ADMIN"),
-            "/apirest-payments", List.of("ROLE_OWNER", "ROLE_ADMIN"),
-            "/apirest-reservations", List.of("ROLE_OWNER", "ROLE_CARER")
+    /**
+     * Reglas de roles: rutas privadas que requieren ciertos roles
+     */
+    private static final Map<String, List<String>> ROLE_RULES = Map.of(
+            "/users/", List.of("OWNER", "ADMIN"),
+            "/payments/", List.of("OWNER", "ADMIN")
+            //"/reservations/", List.of("OWNER", "CARER") // si quisieras proteger algunas rutas de reservations
     );
 
     private final WebClient webClient = WebClient.create("http://localhost:8084");
@@ -44,11 +52,9 @@ public class JwtAuthenticationFilter implements WebFilter {
         log.debug("🌐 Petición entrante: {}", path);
 
         // ✅ Permitir rutas públicas
-        for (String publicPath : PUBLIC_PATHS) {
-            if (path.startsWith(publicPath)) {
-                log.info("Ruta pública detectada: {} — no se requiere autenticación.", path);
-                return chain.filter(exchange);
-            }
+        if (isPublicPath(path)) {
+            log.debug("Ruta pública detectada: {}", path);
+            return chain.filter(exchange);
         }
 
         // ✅ Verificar header Authorization
@@ -66,7 +72,7 @@ public class JwtAuthenticationFilter implements WebFilter {
                 .uri("/auth/validate")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .retrieve()
-                .onStatus(status -> status.isError(), response -> {
+                .onStatus(HttpStatusCode::isError, response -> {
                     log.warn("Token inválido según AuthService (status: {})", response.statusCode());
                     return Mono.error(new RuntimeException("Token inválido"));
                 })
@@ -76,28 +82,46 @@ public class JwtAuthenticationFilter implements WebFilter {
                     List<String> roles = (List<String>) response.get("roles");
                     log.info("✅ Token válido. Usuario: {} | Roles: {}", username, roles);
 
-                    // 🔒 Validar roles según la ruta
-                    for (Map.Entry<String, List<String>> entry : protectedRoutes.entrySet()) {
-                        String routePrefix = entry.getKey();
-                        List<String> requiredRoles = entry.getValue();
-
-                        if (path.startsWith(routePrefix)) {
-                            boolean hasAccess = roles.stream().anyMatch(requiredRoles::contains);
-                            if (!hasAccess) {
-                                log.warn("🚫 Acceso denegado. Usuario '{}' no tiene roles requeridos para '{}'", username, path);
-                                exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
-                                return exchange.getResponse().setComplete();
-                            }
-                        }
+                    // ✅ Validar rol según la ruta
+                    if (!hasPermission(path, roles)) {
+                        log.warn("🚫 Acceso denegado. Usuario '{}' no tiene permisos para '{}'", username, path);
+                        exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
+                        return exchange.getResponse().setComplete();
                     }
 
-                    log.debug("➡️ Continuando con el request hacia el microservicio destino...");
-                    return chain.filter(exchange);
+                    // ✅ Reenviar el token al microservicio destino
+                    var mutatedRequest = exchange.getRequest().mutate()
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                            .build();
+
+                    return chain.filter(exchange.mutate().request(mutatedRequest).build());
                 })
                 .onErrorResume(e -> {
                     log.error("Error al validar token con AuthService: {}", e.getMessage());
                     exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
                     return exchange.getResponse().setComplete();
                 });
+    }
+
+    /**
+     * Verifica si la ruta es pública
+     */
+    private boolean isPublicPath(String path) {
+        return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
+    }
+
+    /**
+     * Verifica si los roles del usuario cumplen con las reglas del endpoint
+     */
+    private boolean hasPermission(String path, List<String> userRoles) {
+        for (Map.Entry<String, List<String>> entry : ROLE_RULES.entrySet()) {
+            String routePrefix = entry.getKey();
+            List<String> requiredRoles = entry.getValue();
+
+            if (path.startsWith(routePrefix)) {
+                return userRoles.stream().anyMatch(requiredRoles::contains);
+            }
+        }
+        return true; // Si no hay regla específica, se permite acceso
     }
 }
