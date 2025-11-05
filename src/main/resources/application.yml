@@ -1,53 +1,53 @@
 server:
   port: 8080
-  servlet:
-    context-path: /
+#  servlet:
+#    context-path: /
 
 spring:
   main:
     web-application-type: reactive
   config:
     import: optional:configserver:http://localhost:8888
-
   application:
     name: microservice-gateway
 
   cloud:
     gateway:
       routes:
+        # Microservicio Reservations
+        - id: reservation-service
+          uri: lb://RESERVATIONMS
+          predicates:
+            - Path=/reservations/**
+          filters:
+            - RewritePath=/reservations/(?<segment>.*), /api/v1/${segment}
+
+#        - id: payments
+#          uri: http://localhost:8082
+#          predicates:
+#            - Path=/apirest-payments/invoices/**
+#          filters:
+#            - StripPrefix=1
+#            - name: AuthenticationFilter
+
         # Microservicio Payments
-        - id: payments
-          uri: http://localhost:8082
-          predicates:
-            - Path=/apirest-payments/invoices/**
-          filters:
-            - StripPrefix=1
-            - name: AuthenticationFilter
-
-
-        - id: user-microservice
-          uri: http://localhost:8084
-          predicates:
-            - Path=/auth/**
-          filters:
-            - StripPrefix=0
-
         #Cambien para sus microservicios
         # Microservicio Users
         - id: users
-          uri: http://localhost:8083
+          uri: lb://USER-MICROSERVICE
           predicates:
-            - Path=/apirest-users/**
+            - Path=/users/**
+            - Path=/auth/**
           filters:
-            - StripPrefix=1
+            - RewritePath=/users/(?<segment>.*), /api/v1/${segment}
+            - RewritePath=/auth/(?<segment>.*), /api/v1/${segment}
 
-        # Microservicio Reservations
-        - id: reservations
-          uri: http://localhost:8085
-          predicates:
-            - Path=/apirest-reservations/**
-          filters:
-            - StripPrefix=1
+#        - id: user-microservice
+#          uri: http://localhost:8084
+#          predicates:
+#            - Path=/auth/**
+#          filters:
+#            - StripPrefix=0
 
 eureka:
   client:

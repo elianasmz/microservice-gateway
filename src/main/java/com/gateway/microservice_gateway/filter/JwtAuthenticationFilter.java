@@ -25,8 +25,7 @@ public class JwtAuthenticationFilter implements WebFilter {
     private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private static final String[] PUBLIC_PATHS = {
-            "/auth/login",
-            "/auth/register",
+            "/auth",
             "/eureka",
             "/actuator"
     };
