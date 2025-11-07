@@ -1,80 +1,182 @@
 server:
   port: 8080
-  servlet:
-    context-path: /
 
 spring:
-  main:
-    web-application-type: reactive
-  config:
-    import: optional:configserver:http://localhost:8888
-
   application:
-    name: microservice-gateway
+    name: api-gateway
 
   cloud:
     gateway:
+      # Descubrimiento dinámico de servicios desde Eureka
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      # Configuración de rutas
       routes:
-        # Microservicio Payments
-        - id: payments
-          uri: http://localhost:8082
+        # ==================== AUTH SERVICE (público) ====================
+        - id: auth-login
+          uri: lb://user-microservice
           predicates:
-            - Path=/apirest-payments/invoices/**
+            - Path=/auth/login
+            - Method=POST
           filters:
-            - StripPrefix=1
-            - name: AuthenticationFilter
+            - RemoveRequestHeader=Cookie
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
 
-
-        - id: user-microservice
-          uri: http://localhost:8084
+        - id: auth-register
+          uri: lb://user-microservice
           predicates:
-            - Path=/auth/**
+            - Path=/auth/register
+            - Method=POST
           filters:
-            - StripPrefix=0
+            - RemoveRequestHeader=Cookie
 
-        #Cambien para sus microservicios
-        # Microservicio Users
-        - id: users
-          uri: http://localhost:8083
+        - id: auth-validate
+          uri: lb://user-microservice
           predicates:
-            - Path=/apirest-users/**
-          filters:
-            - StripPrefix=1
+            - Path=/auth/validate
+            - Method=GET
 
-        # Microservicio Reservations
-        - id: reservations
-          uri: http://localhost:8085
+        # ==================== USER SERVICE (protegido) ====================
+        - id: users-service
+          uri: lb://USER-MICROSERVICE
           predicates:
-            - Path=/apirest-reservations/**
+            - Path=/users/**
           filters:
-            - StripPrefix=1
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: userCircuitBreaker
+                fallbackUri: forward:/fallback/users
 
+        # ==================== ROLES SERVICE (protegido - solo admin) ====================
+        - id: roles-service
+          uri: lb://USER-MICROSERVICE
+          predicates:
+            - Path=/roles/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: roleCircuitBreaker
+                fallbackUri: forward:/fallback/roles
+
+        # ==================== USER-ROLES SERVICE (protegido) ====================
+        - id: user-roles-service
+          uri: lb://USER-MICROSERVICE
+          predicates:
+            - Path=/user-roles/**
+          filters:
+            - AuthenticationFilter
+
+        # ==================== SERVICE MICROSERVICE (protegido) ====================
+        - id: services-microservice
+          uri: lb://apirest-services
+          predicates:
+            - Path=/apirest-services/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: serviceCircuitBreaker
+                fallbackUri: forward:/fallback/services
+
+        # ==================== RESERVATION MICROSERVICE (protegido) ====================
+        - id: reservations-microservice
+          uri: lb://RESERVATION-MICROSERVICE
+          predicates:
+            - Path=/reservations/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: reservationCircuitBreaker
+                fallbackUri: forward:/fallback/reservations
+
+        # ==================== INVOICE MICROSERVICE (protegido) ====================
+        - id: invoices-microservice
+          uri: lb://INVOICE-MICROSERVICE
+          predicates:
+            - Path=/invoices/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: invoiceCircuitBreaker
+                fallbackUri: forward:/fallback/invoices
+
+      # Configuración global de CORS
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins:
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+              - "http://localhost:8080"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+              - PATCH
+            allowed-headers: "*"
+            allow-credentials: true
+            max-age: 3600
+
+      # Configuración de timeouts
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 10s
+
+# =============================
+# = EUREKA CLIENT CONFIG
+# =============================
 eureka:
   client:
-    service-url:
-      defaultZone: http://localhost:8761/eureka
     register-with-eureka: true
     fetch-registry: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+    ip-address: 127.0.0.1
+    instance-id: ${spring.application.name}:${server.port}
 
-logging:
-  level:
-    org.springframework.cloud.gateway: DEBUG
-    org.springframework.web: DEBUG
+# =============================
+# = JWT CONFIGURATION
+# =============================
+jwt:
+  secret: m1Cl4v3S3cr3t4MuyLarg4yC0mplej4ParaJWT1234567890x
+  expiration: 3600000
 
-app:
-  jwt:
-    secret: m1Cl4v3S3cr3t4MuyLarg4yC0mplej4ParaJWT1234567890x
-    expiration:
-      duration: 3600000
-
+# =============================
+# = ACTUATOR CONFIG
+# =============================
 management:
-  endpoint:
-    health:
-      show-details: always
-  health:
-    readinessstate:
-      enabled: true
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,gateway,routes
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+# =============================
+# = LOGGING CONFIGURATION
+# =============================
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.web: DEBUG
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
