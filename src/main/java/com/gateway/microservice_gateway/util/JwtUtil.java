@@ -2,12 +2,12 @@ package com.gateway.microservice_gateway.util;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets; // ✅ AGREGAR ESTE IMPORT
 import java.security.Key;
 import java.util.Date;
 import java.util.function.Function;
@@ -23,10 +23,10 @@ public class JwtUtil {
     private long expiration;
 
     /**
-     * Obtener la clave de firma
+     * Obtener la clave de firma (CORREGIDO: UTF-8 en lugar de Base64)
      */
     private Key getSignKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(secret);
+        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
@@ -62,7 +62,7 @@ public class JwtUtil {
     }
 
     /**
-     * Extraer la fecha de expiración del token
+     * Extraer la fecha de expiracion del token
      */
     public Date extractExpiration(String token) {
         return getClaim(token, Claims::getExpiration);

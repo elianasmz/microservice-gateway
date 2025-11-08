@@ -58,7 +58,7 @@ public class HealthController {
     }
 
     /**
-     * Información del Gateway
+     * Informacion del Gateway
      */
     @GetMapping("/info")
     public ResponseEntity<Map<String, Object>> info() {
@@ -68,7 +68,7 @@ public class HealthController {
         info.put("description", "Gateway centralizado con validación JWT y descubrimiento de servicios");
         info.put("timestamp", LocalDateTime.now());
 
-        // Configuración
+        // Configuracion
         Map<String, Object> config = new HashMap<>();
         config.put("eurekaServer", "http://localhost:8761/eureka/");
         config.put("port", 8080);

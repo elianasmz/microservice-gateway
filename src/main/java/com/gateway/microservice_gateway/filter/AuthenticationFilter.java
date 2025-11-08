@@ -29,11 +29,11 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
 
             String path = exchange.getRequest().getURI().getPath();
 
-            // 🧩 Endpoints públicos (no requieren autenticación)
+            // Endpoints publicos (no requieren autenticacion)
             if (path.contains("/auth/login") ||
                     path.contains("/auth/register") ||
                     path.contains("/auth/validate")) {
-                log.debug("🟢 Ruta pública detectada: {}", path);
+                log.debug("Ruta pública detectada: {}", path);
                 return chain.filter(exchange);
             }
 
@@ -63,7 +63,7 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
                 String username = jwtUtil.extractUsername(token);
                 String roles = jwtUtil.extractRoles(token);
 
-                log.info("✅ Request authenticated - User: {}, Roles: {}", username, roles);
+                log.info("Request authenticated - User: {}, Roles: {}", username, roles);
 
                 // 5. Agregar headers personalizados
                 exchange = exchange.mutate()
@@ -76,14 +76,14 @@ public class AuthenticationFilter extends AbstractGatewayFilterFactory<Authentic
                 return chain.filter(exchange);
 
             } catch (Exception e) {
-                log.error("❌ Error validating token: {}", e.getMessage());
+                log.error("Error validating token: {}", e.getMessage());
                 return onError(exchange, "Error validating token: " + e.getMessage(), HttpStatus.UNAUTHORIZED);
             }
         };
     }
 
     /**
-     * Método para manejar errores y retornar respuestas JSON
+     * Metodo para manejar errores y retornar respuestas JSON
      */
     private Mono<Void> onError(ServerWebExchange exchange, String message, HttpStatus httpStatus) {
         exchange.getResponse().setStatusCode(httpStatus);
