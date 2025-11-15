@@ -1,27 +1,27 @@
 server:
   port: 8080
 
+app:
+  tomcat-microservices: http://localhost:9090
+
 spring:
   application:
     name: api-gateway
+  main:
+    web-application-type: reactive
 
   cloud:
     gateway:
-      # Descubrimiento dinámico de servicios desde Eureka
-      discovery:
-        locator:
-          enabled: true
-          lower-case-service-id: true
-
       # Configuración de rutas
       routes:
         # ==================== AUTH SERVICE (público) ====================
         - id: auth-login
-          uri: lb://user-microservice
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/auth/login
             - Method=POST
           filters:
+            - RewritePath=/auth/login, /users/auth/login
             - RemoveRequestHeader=Cookie
             - name: CircuitBreaker
               args:
@@ -29,25 +29,29 @@ spring:
                 fallbackUri: forward:/fallback/auth
 
         - id: auth-register
-          uri: lb://user-microservice
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/auth/register
             - Method=POST
           filters:
+            - RewritePath=/auth/register, /users/auth/register
             - RemoveRequestHeader=Cookie
 
         - id: auth-validate
-          uri: lb://user-microservice
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/auth/validate
             - Method=GET
+          filters:
+            - RewritePath=/auth/validate, /users/auth/validate
 
         # ==================== USER SERVICE (protegido) ====================
         - id: users-service
-          uri: lb://USER-MICROSERVICE
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/users/**
           filters:
+            - RewritePath=/users/(?<segment>.*), /users/users/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -56,10 +60,11 @@ spring:
 
         # ==================== ROLES SERVICE (protegido - solo admin) ====================
         - id: roles-service
-          uri: lb://USER-MICROSERVICE
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/roles/**
           filters:
+            - RewritePath=/users/(?<segment>.*), /users/roles/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -68,18 +73,20 @@ spring:
 
         # ==================== USER-ROLES SERVICE (protegido) ====================
         - id: user-roles-service
-          uri: lb://USER-MICROSERVICE
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/user-roles/**
           filters:
+            - RewritePath=/user-roles/(?<segment>.*), /users/user-roles/${segment}
             - AuthenticationFilter
 
         # ==================== SERVICE MICROSERVICE (protegido) ====================
         - id: services-microservice
-          uri: lb://apirest-services
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/apirest-services/**
           filters:
+            - RewritePath=/apirest-services/(?<segment>.*), /services/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -88,10 +95,11 @@ spring:
 
         # ==================== RESERVATION MICROSERVICE (protegido) ====================
         - id: reservations-microservice
-          uri: lb://RESERVATION-MICROSERVICE
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/reservations/**
           filters:
+            - RewritePath=/reservations/(?<segment>.*), /reservations/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -100,10 +108,11 @@ spring:
 
         # ==================== INVOICE MICROSERVICE (protegido) ====================
         - id: invoices-microservice
-          uri: lb://INVOICE-MICROSERVICE
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/invoices/**
           filters:
+            - RewritePath=/invoices/(?<segment>.*), /invoices/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -133,20 +142,6 @@ spring:
       httpclient:
         connect-timeout: 5000
         response-timeout: 10s
-
-# =============================
-# = EUREKA CLIENT CONFIG
-# =============================
-eureka:
-  client:
-    register-with-eureka: true
-    fetch-registry: true
-    service-url:
-      defaultZone: http://localhost:8761/eureka/
-  instance:
-    prefer-ip-address: true
-    ip-address: 127.0.0.1
-    instance-id: ${spring.application.name}:${server.port}
 
 # =============================
 # = JWT CONFIGURATION
