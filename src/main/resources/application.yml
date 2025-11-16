@@ -95,10 +95,11 @@ spring:
 
         # ==================== RESERVATION MICROSERVICE (protegido) ====================
         - id: reservations-microservice
-          uri: lb://apirest-reservations
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/apirest-reservations/**
           filters:
+            - RewritePath=/apirest-reservations/(?<segment>.*), /reservations/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
