@@ -20,7 +20,11 @@ public class CorsConfig {
         corsConfig.setAllowedOrigins(Arrays.asList(
                 "http://localhost:5173",
                 "http://localhost:3000",
-                "http://localhost:8080"
+                "http://localhost:8080",
+                "http://localhost:8180",
+                "http://localhost:8280",
+                "http://localhost:9090",
+                "http://localhost"
         ));
 
         // Metodos permitidos

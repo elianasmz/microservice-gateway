@@ -64,7 +64,7 @@ spring:
           predicates:
             - Path=/roles/**
           filters:
-            - RewritePath=/users/(?<segment>.*), /users/roles/${segment}
+            - RewritePath=/roles/(?<segment>.*), /users/roles/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -80,13 +80,33 @@ spring:
             - RewritePath=/user-roles/(?<segment>.*), /users/user-roles/${segment}
             - AuthenticationFilter
 
+        # Ruta especifica para carers/available
+        - id: users-carers-available
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/users/carers/available
+            - Method=GET
+          filters:
+            - AuthenticationFilter
+
         # ==================== SERVICE MICROSERVICE (protegido) ====================
         - id: services-microservice
           uri: ${app.tomcat-microservices}
           predicates:
-            - Path=/apirest-services/**
+            - Path=/services/**
           filters:
-            - RewritePath=/apirest-services/(?<segment>.*), /services/${segment}
+            - RewritePath=/services/(?<segment>.*), /services/${segment}
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: serviceCircuitBreaker
+                fallbackUri: forward:/fallback/services
+
+        - id: services-types-microservice
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/service-types/**
+          filters:
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
