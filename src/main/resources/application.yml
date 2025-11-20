@@ -128,11 +128,32 @@ spring:
 
         # ==================== INVOICE MICROSERVICE (protegido) ====================
         - id: invoices-microservice
-          uri: ${app.tomcat-microservices}
+          uri: lb://apirest-payments
           predicates:
             - Path=/invoices/**
           filters:
-            - RewritePath=/invoices/(?<segment>.*), /invoices/${segment}
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: invoiceCircuitBreaker
+                fallbackUri: forward:/fallback/invoices
+
+        - id: invoices-microservice
+          uri: lb://apirest-payments
+          predicates:
+            - Path=/payment-details/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: invoiceCircuitBreaker
+                fallbackUri: forward:/fallback/invoices
+
+        - id: invoices-microservice
+          uri: lb://apirest-payments
+          predicates:
+            - Path=/payment-methods/**
+          filters:
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
