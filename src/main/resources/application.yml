@@ -117,9 +117,10 @@ spring:
         - id: reservations-microservice
           uri: ${app.tomcat-microservices}
           predicates:
-            - Path=/apirest-reservations/**
+            - Path=/reservations/**
+            - Method=GET,POST,PUT,DELETE,OPTIONS,PATCH
           filters:
-            - RewritePath=/apirest-reservations/(?<segment>.*), /reservations/${segment}
+            - RewritePath=/reservations/(?<segment>.*), /reservations/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -128,7 +129,7 @@ spring:
 
         # ==================== INVOICE MICROSERVICE (protegido) ====================
         - id: invoices-microservice
-          uri: lb://apirest-payments
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/invoices/**
           filters:
@@ -139,7 +140,7 @@ spring:
                 fallbackUri: forward:/fallback/invoices
 
         - id: invoices-microservice
-          uri: lb://apirest-payments
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/payment-details/**
           filters:
@@ -150,7 +151,7 @@ spring:
                 fallbackUri: forward:/fallback/invoices
 
         - id: invoices-microservice
-          uri: lb://apirest-payments
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/payment-methods/**
           filters:
