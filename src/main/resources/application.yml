@@ -1,97 +1,218 @@
 server:
   port: 8080
-  address: 192.168.0.101
+
+app:
+  tomcat-microservices: http://localhost:9090
 
 spring:
+  application:
+    name: api-gateway
   main:
     web-application-type: reactive
-  config:
-    import: optional:configserver:http://localhost:8888
-  application:
-    name: microservice-gateway
 
   cloud:
     gateway:
-      default-filters:
-        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials
+      # Configuración de rutas
       routes:
-        # Microservicio Auth
-        - id: auth
-          uri: lb://USER-MICROSERVICE
+        # ==================== AUTH SERVICE (público) ====================
+        - id: auth-login
+          uri: ${app.tomcat-microservices}
           predicates:
-            - Path=/auth/**
+            - Path=/auth/login
+            - Method=POST
           filters:
-            - RewritePath=/auth/(?<segment>.*), /api/v1/${segment}
+            - RewritePath=/auth/login, /users/auth/login
+            - RemoveRequestHeader=Cookie
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
 
-        # Microservicio Users
-        - id: user
-          uri: lb://USER-MICROSERVICE
+        - id: auth-register
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/auth/register
+            - Method=POST
+          filters:
+            - RewritePath=/auth/register, /users/auth/register
+            - RemoveRequestHeader=Cookie
+
+        - id: auth-validate
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/auth/validate
+            - Method=GET
+          filters:
+            - RewritePath=/auth/validate, /users/auth/validate
+
+        # ==================== USER SERVICE (protegido) ====================
+        - id: users-service
+          uri: ${app.tomcat-microservices}
           predicates:
             - Path=/users/**
           filters:
-            - RewritePath=/users/(?<segment>.*), /api/v1/${segment}
+            - RewritePath=/users/(?<segment>.*), /users/users/${segment}
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: userCircuitBreaker
+                fallbackUri: forward:/fallback/users
 
-        # Microservicio Reservations
-        - id: reservation
-          uri: http://localhost:8081
+        # ==================== ROLES SERVICE (protegido - solo admin) ====================
+        - id: roles-service
+          uri: ${app.tomcat-microservices}
           predicates:
-            - Path=/reservations/**
+            - Path=/roles/**
           filters:
-            - RewritePath=/reservations/(?<segment>.*), /api/v1/${segment}
+            - RewritePath=/roles/(?<segment>.*), /users/roles/${segment}
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: roleCircuitBreaker
+                fallbackUri: forward:/fallback/roles
 
-        - id: reservation-service
-          uri: http://localhost:8081
+        # ==================== USER-ROLES SERVICE (protegido) ====================
+        - id: user-roles-service
+          uri: ${app.tomcat-microservices}
           predicates:
-            - Path=/reservation-services/**
+            - Path=/user-roles/**
           filters:
-            - RewritePath=/reservation-services/(?<segment>.*), /api/v1/${segment}
+            - RewritePath=/user-roles/(?<segment>.*), /users/user-roles/${segment}
+            - AuthenticationFilter
 
-#        - id: payments
-#          uri: http://localhost:8082
-#          predicates:
-#            - Path=/apirest-payments/invoices/**
-#          filters:
-#            - StripPrefix=1
-#            - name: AuthenticationFilter
+        # Ruta especifica para carers/available
+        - id: users-carers-available
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/users/carers/available
+            - Method=GET
+          filters:
+            - AuthenticationFilter
 
-        # Microservicio Payments
-        #Cambien para sus microservicios
+        # ==================== SERVICE MICROSERVICE (protegido) ====================
+        - id: services-microservice
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/services/**
+          filters:
+            - RewritePath=/services/(?<segment>.*), /services/${segment}
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: serviceCircuitBreaker
+                fallbackUri: forward:/fallback/services
 
-            #- JwtAuthenticationFilter
+        - id: services-types-microservice
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/service-types/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: serviceCircuitBreaker
+                fallbackUri: forward:/fallback/services
 
-#        - id: user-microservice
-#          uri: http://localhost:8084
-#          predicates:
-#            - Path=/auth/**
-#          filters:
-#            - StripPrefix=0
+        # ==================== RESERVATION MICROSERVICE (protegido) ====================
+        - id: reservations-microservice
+          uri: ${app.tomcat-microservices}
+          predicates:
+            - Path=/apirest-reservations/**
+          filters:
+            - RewritePath=/apirest-reservations/(?<segment>.*), /reservations/${segment}
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: reservationCircuitBreaker
+                fallbackUri: forward:/fallback/reservations
 
-eureka:
-  client:
-    service-url:
-      defaultZone: http://192.168.0.101:8761/eureka
-    register-with-eureka: true
-    fetch-registry: true
+        # ==================== INVOICE MICROSERVICE (protegido) ====================
+        - id: invoices-microservice
+          uri: lb://apirest-payments
+          predicates:
+            - Path=/invoices/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: invoiceCircuitBreaker
+                fallbackUri: forward:/fallback/invoices
 
-logging:
-  level:
-    org.springframework.cloud.gateway: DEBUG
-    org.springframework.web: DEBUG
+        - id: invoices-microservice
+          uri: lb://apirest-payments
+          predicates:
+            - Path=/payment-details/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: invoiceCircuitBreaker
+                fallbackUri: forward:/fallback/invoices
 
-app:
-  jwt:
-    secret: m1Cl4v3S3cr3t4MuyLarg4yC0mplej4ParaJWT1234567890x
-    expiration:
-      duration: 3600000
+        - id: invoices-microservice
+          uri: lb://apirest-payments
+          predicates:
+            - Path=/payment-methods/**
+          filters:
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: invoiceCircuitBreaker
+                fallbackUri: forward:/fallback/invoices
 
+      # Configuración global de CORS
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins:
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+              - "http://localhost:8080"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+              - PATCH
+            allowed-headers: "*"
+            allow-credentials: true
+            max-age: 3600
+
+      # Configuración de timeouts
+      httpclient:
+        connect-timeout: 5000
+        response-timeout: 10s
+
+# =============================
+# = JWT CONFIGURATION
+# =============================
+jwt:
+  secret: m1Cl4v3S3cr3t4MuyLarg4yC0mplej4ParaJWT1234567890x
+  expiration: 3600000
+
+# =============================
+# = ACTUATOR CONFIG
+# =============================
 management:
-  endpoint:
-    health:
-      show-details: always
-  health:
-    readiness-state:
-      enabled: true
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,gateway,routes
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+# =============================
+# = LOGGING CONFIGURATION
+# =============================
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.web: DEBUG
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
