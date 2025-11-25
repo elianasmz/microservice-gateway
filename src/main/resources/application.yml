@@ -1,27 +1,35 @@
 server:
   port: 8080
 
-app:
-  tomcat-microservices: http://localhost:9090
-
 spring:
   application:
     name: api-gateway
-  main:
-    web-application-type: reactive
 
   cloud:
     gateway:
+      httpclient:
+        connect-timeout: 10000  # 10 segundos
+        response-timeout: 30s   # 30 segundos
+        pool:
+          type: elastic
+          max-connections: 1000
+          acquire-timeout: 45000
+      # Descubrimiento dinámico de servicios desde Eureka
+      discovery:
+        locator:
+          enabled: false
+          lower-case-service-id: true
+
+
       # Configuración de rutas
       routes:
         # ==================== AUTH SERVICE (público) ====================
         - id: auth-login
-          uri: ${app.tomcat-microservices}
+          uri: lb://user-microservice
           predicates:
             - Path=/auth/login
             - Method=POST
           filters:
-            - RewritePath=/auth/login, /users/auth/login
             - RemoveRequestHeader=Cookie
             - name: CircuitBreaker
               args:
@@ -29,42 +37,48 @@ spring:
                 fallbackUri: forward:/fallback/auth
 
         - id: auth-register
-          uri: ${app.tomcat-microservices}
+          uri: lb://user-microservice
           predicates:
             - Path=/auth/register
             - Method=POST
           filters:
-            - RewritePath=/auth/register, /users/auth/register
             - RemoveRequestHeader=Cookie
 
         - id: auth-validate
-          uri: ${app.tomcat-microservices}
+          uri: lb://user-microservice
           predicates:
             - Path=/auth/validate
             - Method=GET
+
+        # Ruta específica para carers/available
+        - id: users-carers-available
+          uri: lb://user-microservice  # ← Cambiar a minúsculas para consistencia
+          predicates:
+            - Path=/users/carers/available
+            - Method=GET
           filters:
-            - RewritePath=/auth/validate, /users/auth/validate
+            - AuthenticationFilter
 
         # ==================== USER SERVICE (protegido) ====================
         - id: users-service
-          uri: ${app.tomcat-microservices}
+          uri: lb://user-microservice
           predicates:
             - Path=/users/**
           filters:
-            - RewritePath=/users/(?<segment>.*), /users/users/${segment}
             - AuthenticationFilter
-            - name: CircuitBreaker
+            - name: CircuitBreaker  # ← Agregar CircuitBreaker aquí también
               args:
                 name: userCircuitBreaker
                 fallbackUri: forward:/fallback/users
 
+
+
         # ==================== ROLES SERVICE (protegido - solo admin) ====================
         - id: roles-service
-          uri: ${app.tomcat-microservices}
+          uri: lb://USER-MICROSERVICE
           predicates:
             - Path=/roles/**
           filters:
-            - RewritePath=/roles/(?<segment>.*), /users/roles/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -73,29 +87,18 @@ spring:
 
         # ==================== USER-ROLES SERVICE (protegido) ====================
         - id: user-roles-service
-          uri: ${app.tomcat-microservices}
+          uri: lb://USER-MICROSERVICE
           predicates:
             - Path=/user-roles/**
-          filters:
-            - RewritePath=/user-roles/(?<segment>.*), /users/user-roles/${segment}
-            - AuthenticationFilter
-
-        # Ruta especifica para carers/available
-        - id: users-carers-available
-          uri: ${app.tomcat-microservices}
-          predicates:
-            - Path=/users/carers/available
-            - Method=GET
           filters:
             - AuthenticationFilter
 
         # ==================== SERVICE MICROSERVICE (protegido) ====================
         - id: services-microservice
-          uri: ${app.tomcat-microservices}
+          uri: lb://apirest-services
           predicates:
             - Path=/services/**
           filters:
-            - RewritePath=/services/(?<segment>.*), /services/${segment}
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -103,7 +106,7 @@ spring:
                 fallbackUri: forward:/fallback/services
 
         - id: services-types-microservice
-          uri: ${app.tomcat-microservices}
+          uri: lb://apirest-services
           predicates:
             - Path=/service-types/**
           filters:
@@ -115,12 +118,25 @@ spring:
 
         # ==================== RESERVATION MICROSERVICE (protegido) ====================
         - id: reservations-microservice
-          uri: ${app.tomcat-microservices}
+          uri: lb://apirest-reservations
           predicates:
             - Path=/reservations/**
-            - Method=GET,POST,PUT,DELETE,OPTIONS,PATCH
+            - Method=GET,POST,PUT,DELETE,OPTIONS
+
           filters:
-            - RewritePath=/reservations/(?<segment>.*), /reservations/${segment}
+            - AuthenticationFilter
+            - name: CircuitBreaker
+              args:
+                name: reservationCircuitBreaker
+                fallbackUri: forward:/fallback/reservations
+
+        - id: reservations-service-microservice
+          uri: lb://apirest-reservations
+          predicates:
+            - Path=/reservation-services/**
+            - Method=GET,POST,PUT,DELETE,OPTIONS
+
+          filters:
             - AuthenticationFilter
             - name: CircuitBreaker
               args:
@@ -129,31 +145,9 @@ spring:
 
         # ==================== INVOICE MICROSERVICE (protegido) ====================
         - id: invoices-microservice
-          uri: ${app.tomcat-microservices}
+          uri: lb://INVOICE-MICROSERVICE
           predicates:
             - Path=/invoices/**
-          filters:
-            - AuthenticationFilter
-            - name: CircuitBreaker
-              args:
-                name: invoiceCircuitBreaker
-                fallbackUri: forward:/fallback/invoices
-
-        - id: invoices-microservice
-          uri: ${app.tomcat-microservices}
-          predicates:
-            - Path=/payment-details/**
-          filters:
-            - AuthenticationFilter
-            - name: CircuitBreaker
-              args:
-                name: invoiceCircuitBreaker
-                fallbackUri: forward:/fallback/invoices
-
-        - id: invoices-microservice
-          uri: ${app.tomcat-microservices}
-          predicates:
-            - Path=/payment-methods/**
           filters:
             - AuthenticationFilter
             - name: CircuitBreaker
@@ -181,9 +175,21 @@ spring:
             max-age: 3600
 
       # Configuración de timeouts
-      httpclient:
-        connect-timeout: 5000
-        response-timeout: 10s
+
+
+# =============================
+# = EUREKA CLIENT CONFIG
+# =============================
+eureka:
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+    ip-address: 127.0.0.1
+    instance-id: ${spring.application.name}:${server.port}
 
 # =============================
 # = JWT CONFIGURATION
@@ -211,9 +217,10 @@ management:
 # =============================
 logging:
   level:
-    root: INFO
-    org.springframework.cloud.gateway: DEBUG
-    org.springframework.web: DEBUG
-    reactor.netty: INFO
+    org.springframework.cloud.gateway: TRACE
+    org.springframework.cloud.loadbalancer: TRACE
+    org.springframework.cloud.netflix.eureka: DEBUG
+    reactor.netty: TRACE
+    reactor.netty.http.client: TRACE
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
